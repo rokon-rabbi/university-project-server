@@ -5,6 +5,10 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const mysql = require('mysql2');
+// const { sendResetEmail } = require('./mailer');
+
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const cookieParser = require('cookie-parser')
 const salt = 1;
@@ -14,7 +18,7 @@ const port = 5000;
 
 app.use(cors({
   origin: ["http://localhost:5173"],
-  methods: ["POST", "GET"],
+  // methods: ["POST", "GET"],
   credentials: true
 }
 
@@ -37,10 +41,107 @@ conn.connect((err) => {
   console.log('Connected to MySQL');
 });
 
+// reset password
+// <<<<<<<<<<<----------------->>>>>>>>>>>>>
+
+
+const transporter = nodemailer.createTransport({
+  service: 'Gmail',
+  auth: {
+    user: 'rokon2514@student.nstu.edu.bd',
+    pass: 'dzya lxxp qtvf ofry' // Use the App Password generated
+  }
+});
+
+const sendResetEmail = (email, token) => {
+  console.log(`Sending email to: ${email}, with token: ${token}`);
+  const resetLink = `http://localhost:5173/reset-password?token=${token}`;
+  const mailOptions = {
+    from: 'rokon2514@student.nstu.edu.bd',
+    to: email,
+    subject: 'Password Reset',
+    html: `<p>To reset your password, please click the link below:</p>
+           <a href="${resetLink}">Reset Password</a>`
+  };
+
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+      console.error('Error sending email:', error);
+    } else {
+      console.log('Email sent:', info.response);
+    }
+  });
+};
+
+app.post('/auth/request-reset', (req, res) => {
+  const { email } = req.body;
+  const sql = 'SELECT * FROM users WHERE user_email = ?';
+
+  conn.query(sql, [email], (err, results) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (results.length > 0) {
+      const user = results[0];
+      const token = crypto.randomBytes(20).toString('hex');
+      const tokenExpiry = Date.now() + 3600000; // 1 hour from now
+
+      const updateSql = 'UPDATE users SET reset_password_token = ?, reset_password_expires = ? WHERE user_email = ?';
+      conn.query(updateSql, [token, tokenExpiry, email], (err, result) => {
+        if (err) {
+          console.error('Database error:', err);
+          return res.status(500).json({ error: 'Database error' });
+        }
+
+        sendResetEmail(email, token);
+        res.json({ message: 'Reset email sent' });
+      });
+    } else {
+      res.status(404).json({ message: 'Email not found' });
+    }
+  });
+});
+
+app.post('/auth/reset-password', (req, res) => {
+  const { token, newPassword } = req.body;
+  const sql = 'SELECT * FROM users WHERE reset_password_token = ? AND reset_password_expires > ?';
+
+  conn.query(sql, [token, Date.now()], (err, results) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (results.length > 0) {
+      const user = results[0];
+
+      bcrypt.hash(newPassword.toString(), salt, (err, hash) => {
+        if (err) return res.json({ error: "Error hashing password" });
+
+        const updateSql = 'UPDATE users SET user_password = ?, reset_password_token = NULL, reset_password_expires = NULL WHERE user_email = ?';
+        conn.query(updateSql, [hash, user.user_email], (err, result) => {
+          if (err) {
+            console.error('Database error:', err);
+            return res.status(500).json({ error: 'Database error' });
+          }
+
+          res.json({ message: 'Password has been reset' });
+        });
+      });
+    } else {
+      res.status(400).json({ message: 'Invalid or expired token' });
+    }
+  });
+});
+// <<<<<<<<<<<<<<<<<<<<<<_______________________>>>>>>>>>>>>>>>>>>>>
+
+
 
 // Register
 app.post('/auth/register', (req, res) => {
-  const sql = "INSERT INTO users (`user_name`, `user_email`,`user_mobile`,`user_type`,`user_password`) VALUES (?)";
+  const sql = "INSERT INTO users (`user_name`, `user_email`,`user_mobile`,`user_type`,`user_password`, `user_image`) VALUES (?)";
   bcrypt.hash(req.body.password.toString(), salt, (err, hash) => {
     if (err) return res.json({ Error: "Error for hashing password" });
     // console.log(req.body)
@@ -50,7 +151,8 @@ app.post('/auth/register', (req, res) => {
       req.body.email,
       req.body.mobile,
       req.body.userType,
-      hash
+      hash,
+      req.body.image
     ]
     conn.query(sql, [values], (err, result) => {
       if (err) return res.json(err);
@@ -92,7 +194,7 @@ app.post('/auth/login', (req, res) => {
             { expiresIn: '1h' }
           );
           res.cookie('token', token);
-          return res.json({ message: 'Login successful', userType: user.user_type, token: token });
+          return res.json({ message: 'Login successful',user:user, userType: user.user_type, token: token });
         } else {
           return res.status(401).json({ message: 'Invalid email or password' });
         }
@@ -113,7 +215,9 @@ const verifyToken = (req, res, next) => {
       if (err) {
         return res.json({ Error: "token is not okay" });
       } else {
-        req.userType = decoded.userType; // Set userType in the request object
+        req.userType = decoded.userType; 
+       
+      // Set userType in the request object
         next();
       }
     })
@@ -128,16 +232,28 @@ app.get('/dashboard', verifyToken, (req, res) => {
   
   // Check user role and return appropriate dashboard data
   if (req.userType === 'student') {
-   
     // Fetch student dashboard data from database
-    res.json({ message: 'Access granted - Student Dashboard', data: 'student_dashboard_data',status:'Success' });
+    res.json({ message: 'Access granted - Student Dashboard', data: 'student_dashboard_data', status: 'Success' });
   } else if (req.userType === 'teacher') {
     // Fetch teacher dashboard data from database
-    res.json({ message: 'Access granted - Teacher Dashboard', data: 'teacher_dashboard_data' });
+    res.json({ message: 'Access granted - Teacher Dashboard', data: 'teacher_dashboard_data', status: 'Success' });
+  } else if (req.userType === 'chairman') {
+    // Fetch chairman dashboard data from database
+    res.json({ message: 'Access granted - Chairman Dashboard', data: 'chairman_dashboard_data', status: 'Success' });
+  } else if (req.userType === 'coordinator') {
+    // Fetch coordinator dashboard data from database
+    res.json({ message: 'Access granted - Coordinator Dashboard', data: 'coordinator_dashboard_data', status: 'Success' });
+  } else if (req.userType === 'provost') {
+    // Fetch provost dashboard data from database
+    res.json({ message: 'Access granted - Provost Dashboard', data: 'provost_dashboard_data', status: 'Success' });
+  } else if (req.userType === 'register office') {
+    // Fetch register office dashboard data from database
+    res.json({ message: 'Access granted - Register Office Dashboard', data: 'register_office_dashboard_data', status: 'Success' });
   } else {
     res.status(403).json({ message: 'Unauthorized: Access denied' });
   }
 });
+
 
 
 
