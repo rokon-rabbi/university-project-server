@@ -5,6 +5,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const mysql = require('mysql2');
+// const mysql = require('mysql2/promise');
 // const { sendResetEmail } = require('./mailer');
 
 const nodemailer = require('nodemailer');
@@ -194,7 +195,7 @@ app.post('/auth/login', (req, res) => {
             { expiresIn: '1h' }
           );
           res.cookie('token', token);
-          return res.json({ message: 'Login successful',user:user, userType: user.user_type, token: token });
+          return res.json({ message: 'Login successful', user: user, userType: user.user_type, token: token });
         } else {
           return res.status(401).json({ message: 'Invalid email or password' });
         }
@@ -207,7 +208,7 @@ app.post('/auth/login', (req, res) => {
 
 const verifyToken = (req, res, next) => {
   const token = req.cookies.token;
- 
+
   if (!token) {
     return res.json({ Error: "you are not authenticated" });
   } else {
@@ -215,9 +216,9 @@ const verifyToken = (req, res, next) => {
       if (err) {
         return res.json({ Error: "token is not okay" });
       } else {
-        req.userType = decoded.userType; 
-       
-      // Set userType in the request object
+        req.userType = decoded.userType;
+
+        // Set userType in the request object
         next();
       }
     })
@@ -229,7 +230,7 @@ const verifyToken = (req, res, next) => {
 app.get('/dashboard', verifyToken, (req, res) => {
   // At this point, the token has already been verified in the verifyToken middleware
   // So, you can directly access the decoded token data from req.name or req.userType
-  
+
   // Check user role and return appropriate dashboard data
   if (req.userType === 'student') {
     // Fetch student dashboard data from database
@@ -253,10 +254,89 @@ app.get('/dashboard', verifyToken, (req, res) => {
     res.status(403).json({ message: 'Unauthorized: Access denied' });
   }
 });
+// API endpoint to fetch courses based on year and term
+app.get('/api/courses', (req, res) => {
+  const { year, term } = req.query;
+  const courseLevel = `${year}-${term}`;
+
+  const query = 'SELECT course_id,course_name, course_code FROM courses WHERE course_level = ?';
+  conn.query(query, [courseLevel], (err, results) => {
+    if (err) {
+      console.error('Error fetching courses:', err);
+      res.status(500).json({ error: 'Internal server error' });
+      return;
+    }
+    res.json(results);
+  });
+});
+
+// API endpoint to fetch teachers based on department_id
+app.get('/api/teachers', (req, res) => {
+  const departmentId = 1; // assuming you want to fetch teachers for department_id = 1
+
+  const query = `
+    SELECT u.user_id, t.teacher_id, u.user_name AS name
+    FROM users u
+    INNER JOIN teachers t ON u.user_id = t.user_id
+    WHERE t.department_id = ?`;
+
+  conn.query(query, [departmentId], (err, results) => {
+    if (err) {
+      console.error('Error fetching teachers:', err); // Log the error
+      res.status(500).json({ error: 'Internal server error' });
+      return;
+    }
+    res.json(results);
+  });
+});
+
+// Update courses
+app.post('/api/update-courses', (req, res) => {
+  const { updates } = req.body;
+
+  updates.forEach(update => {
+    const query = 'UPDATE courses SET teacher_id = ? WHERE course_id = ?';
+    conn.query(query, [update.teacher_id, update.course_id], (error) => {
+      if (error) {
+        console.error('Error updating course:', error);
+      }
+    });
+  });
+
+  res.status(200).json({ message: 'Courses updated successfully' });
+});
 
 
+// unique teacer 
+app.get('/api/unique_teacher', (req, res) => {
+  const userId = req.query.userId;
 
+  conn.query('SELECT * FROM teachers WHERE user_id = ?', [userId], (error, results) => {
+    if (error) {
+      console.error('Database error:', error);
+      return res.status(500).json({ error: 'Database error', details: error.message });
+    }
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'Teacher not found' });
+    }
+    res.json(results[0]);
+  });
+});
+// Fetch courses data based on teacher ID
+app.get('/api/unique_courses', (req, res) => {
+  const teacherId = req.query.teacherId;
 
+  conn.query('SELECT * FROM courses WHERE teacher_id = ?', [teacherId], (error, results) => {
+    if (error) {
+      console.error('Database error:', error);
+      return res.status(500).json({ error: 'Database error', details: error.message });
+    }
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'No courses found for this teacher' });
+    }
+    res.json(results);
+  });
+});
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
