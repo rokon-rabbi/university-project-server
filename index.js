@@ -337,6 +337,99 @@ app.get('/api/unique_courses', (req, res) => {
     res.json(results);
   });
 });
+// fetc attendence student 
+app.get('/api/getStudents', (req, res) => {
+  const { course_level } = req.query;
+  // console.log('Received course_level:', course_level);
+
+  let batch;
+
+  if (course_level === '4-2') {
+    batch = 14;
+  } else if (course_level === '3-2') {
+    batch = 15;
+  } else {
+    return res.status(400).send('Invalid course level');
+  }
+
+  const query = `
+  SELECT  s.student_id,s.roll, u.user_name
+    FROM students s
+    JOIN users u ON s.user_id = u.user_id
+    WHERE s.batch = ?
+    ORDER BY s.roll
+  `;
+  // console.log('Executing query:', query, 'with params:', [course_level, batch]);
+
+  conn.query(query, [batch], (error, results) => {
+    if (error) {
+      console.error('Database query failed:', error);
+      return res.status(500).json({ error: 'Database query failed' });
+    }
+    res.json(results);
+  });
+});
+
+// take student attendence 
+app.post('/api/attendances', (req, res) => {
+  const attendances = req.body;
+  const sql = 'INSERT INTO attendances (student_id, teacher_id, course_id, date, attendance_status) VALUES ?';
+  const values = attendances.map(attendance => [
+    attendance.student_id,
+    attendance.teacher_id,
+    attendance.course_id,
+    attendance.date,
+    attendance.attendance_status
+  ]);
+
+  conn.query(sql, [values], (err, result) => {
+    if (err) throw err;
+    res.send('Attendance records inserted');
+  });
+});
+
+// view attendance 
+app.get('/api/getAttendance', (req, res) => {
+  const { courseid } = req.query;
+
+  // SQL query to fetch attendance data
+  const sql = `
+    SELECT student_id, date, attendance_status 
+    FROM attendances 
+    WHERE course_id = ?
+  `;
+
+  conn.query(sql, [courseid], (err, result) => {
+    if (err) {
+      console.error('Error fetching attendance data:', err);
+      res.status(500).send('Error fetching attendance data');
+      return;
+    }
+
+    // Extract unique dates
+    const dates = [...new Set(result.map(record => record.date))];
+
+    // Format data into the expected structure
+    const formattedData = result.reduce((acc, record) => {
+      let student = acc.find(student => student.student_id === record.student_id);
+      if (!student) {
+        student = { student_id: record.student_id, dates: [] };
+        acc.push(student);
+      }
+      student.dates.push({ date: record.date, status: record.attendance_status });
+      return acc;
+    }, []);
+
+    // Response object
+    const responseData = {
+      dates: dates,
+      data: formattedData
+    };
+
+    res.json(responseData);
+  });
+});
+
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
