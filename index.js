@@ -327,7 +327,7 @@ app.get('/api/unique_student', (req, res) => {
   const { userId } = req.query;
 
   const sql = `
-      SELECT student_id, level
+      SELECT *
       FROM students
       WHERE user_id = ?
   `;
@@ -413,7 +413,48 @@ app.post('/api/attendances', (req, res) => {
   });
 });
 
+
 // view attendance 
+app.get('/api/getAttendance', (req, res) => {
+  const { courseid } = req.query;
+
+  // SQL query to fetch attendance data
+  const sql = `
+    SELECT student_id, date, attendance_status 
+    FROM attendances 
+    WHERE course_id = ?
+  `;
+
+  conn.query(sql, [courseid], (err, result) => {
+    if (err) {
+      console.error('Error fetching attendance data:', err);
+      res.status(500).send('Error fetching attendance data');
+      return;
+    }
+
+    // Extract unique dates
+    const dates = [...new Set(result.map(record => record.date))];
+
+    // Format data into the expected structure
+    const formattedData = result.reduce((acc, record) => {
+      let student = acc.find(student => student.student_id === record.student_id);
+      if (!student) {
+        student = { student_id: record.student_id, dates: [] };
+        acc.push(student);
+      }
+      student.dates.push({ date: record.date, status: record.attendance_status });
+      return acc;
+    }, []);
+
+    // Response object
+    const responseData = {
+      dates: dates,
+      data: formattedData
+    };
+
+    res.json(responseData);
+  });
+});
 // Check evaluation endpoint
 app.get('/api/check-evaluation', (req, res) => {
   const { courseId, studentId } = req.query;
@@ -464,6 +505,7 @@ app.get('/api/evaluation_score', (req, res) => {
     }
   });
 });
+
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
