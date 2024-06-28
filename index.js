@@ -259,7 +259,7 @@ app.get('/api/courses', (req, res) => {
   const { year, term } = req.query;
   const courseLevel = `${year}-${term}`;
 
-  const query = 'SELECT course_id,course_name, course_code FROM courses WHERE course_level = ?';
+  const query = 'SELECT course_id,course_name, course_code,teacher_id,course_level FROM courses WHERE course_level = ?';
   conn.query(query, [courseLevel], (err, results) => {
     if (err) {
       console.error('Error fetching courses:', err);
@@ -320,6 +320,31 @@ app.get('/api/unique_teacher', (req, res) => {
       return res.status(404).json({ error: 'Teacher not found' });
     }
     res.json(results[0]);
+  });
+});
+// unique student 
+app.get('/api/unique_student', (req, res) => {
+  const { userId } = req.query;
+
+  const sql = `
+      SELECT student_id, level
+      FROM students
+      WHERE user_id = ?
+  `;
+
+  conn.query(sql, [userId], (err, result) => {
+      if (err) {
+          console.error('Error fetching student data:', err);
+          res.status(500).json({ error: 'Error fetching student data' });
+          return;
+      }
+      
+      // Assuming only one student should match the user_id
+      if (result.length > 0) {
+          res.json(result[0]); // Send the first matching student data
+      } else {
+          res.status(404).json({ error: 'Student not found' });
+      }
   });
 });
 // Fetch courses data based on teacher ID
@@ -389,48 +414,56 @@ app.post('/api/attendances', (req, res) => {
 });
 
 // view attendance 
-app.get('/api/getAttendance', (req, res) => {
-  const { courseid } = req.query;
+// Check evaluation endpoint
+app.get('/api/check-evaluation', (req, res) => {
+  const { courseId, studentId } = req.query;
 
-  // SQL query to fetch attendance data
-  const sql = `
-    SELECT student_id, date, attendance_status 
-    FROM attendances 
-    WHERE course_id = ?
-  `;
-
-  conn.query(sql, [courseid], (err, result) => {
+  // SQL query to check evaluation
+  const sql = 'SELECT COUNT(*) as count FROM evaluations WHERE course_id = ? AND student_id = ?';
+  conn.query(sql, [courseId, studentId], (err, results, fields) => {
     if (err) {
-      console.error('Error fetching attendance data:', err);
-      res.status(500).send('Error fetching attendance data');
+      console.error('Error checking evaluation:', err);
+      res.status(500).json({ error: 'Database error' });
       return;
     }
-
-    // Extract unique dates
-    const dates = [...new Set(result.map(record => record.date))];
-
-    // Format data into the expected structure
-    const formattedData = result.reduce((acc, record) => {
-      let student = acc.find(student => student.student_id === record.student_id);
-      if (!student) {
-        student = { student_id: record.student_id, dates: [] };
-        acc.push(student);
-      }
-      student.dates.push({ date: record.date, status: record.attendance_status });
-      return acc;
-    }, []);
-
-    // Response object
-    const responseData = {
-      dates: dates,
-      data: formattedData
-    };
-
-    res.json(responseData);
+    const count = results[0].count;
+    if (count > 0) {
+      res.json({ submitted: true });
+    } else {
+      res.json({ submitted: false });
+    }
   });
 });
 
 
+// Evaluate course endpoint
+app.post('/api/evaluate-course', (req, res) => {
+  const { courseId, teacherid, evaluationScore, evaluationDate,student } = req.body;
+
+  // SQL query to insert evaluation
+  const sql = 'INSERT INTO evaluations (course_id, teacher_id, evaluation_score, evaluation_date,student_id) VALUES (?, ?, ?, ?,?)';
+  conn.query(sql, [courseId, teacherid, evaluationScore, evaluationDate,student], (err, results, fields) => {
+    if (err) {
+      console.error('Error inserting evaluation:', err);
+      res.status(500).json({ error: 'Database error' });
+      return;
+    }
+
+    res.send('Evaluation submitted successfully');
+  });
+});
+
+
+app.get('/api/evaluation_score', (req, res) => {
+  const { courseId } = req.query;
+  conn.query('SELECT evaluation_score, evaluation_date FROM evaluations WHERE course_id = ?', [courseId], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.json(rows);
+    }
+  });
+});
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
