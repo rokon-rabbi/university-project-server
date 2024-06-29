@@ -333,18 +333,18 @@ app.get('/api/unique_student', (req, res) => {
   `;
 
   conn.query(sql, [userId], (err, result) => {
-      if (err) {
-          console.error('Error fetching student data:', err);
-          res.status(500).json({ error: 'Error fetching student data' });
-          return;
-      }
-      
-      // Assuming only one student should match the user_id
-      if (result.length > 0) {
-          res.json(result[0]); // Send the first matching student data
-      } else {
-          res.status(404).json({ error: 'Student not found' });
-      }
+    if (err) {
+      console.error('Error fetching student data:', err);
+      res.status(500).json({ error: 'Error fetching student data' });
+      return;
+    }
+
+    // Assuming only one student should match the user_id
+    if (result.length > 0) {
+      res.json(result[0]); // Send the first matching student data
+    } else {
+      res.status(404).json({ error: 'Student not found' });
+    }
   });
 });
 // Fetch courses data based on teacher ID
@@ -398,20 +398,49 @@ app.get('/api/getStudents', (req, res) => {
 // take student attendence 
 app.post('/api/attendances', (req, res) => {
   const attendances = req.body;
-  const sql = 'INSERT INTO attendances (student_id, teacher_id, course_id, date, attendance_status) VALUES ?';
-  const values = attendances.map(attendance => [
-    attendance.student_id,
-    attendance.teacher_id,
-    attendance.course_id,
-    attendance.date,
-    attendance.attendance_status
-  ]);
+  const { teacher_id, course_id, date } = attendances[0];
 
-  conn.query(sql, [values], (err, result) => {
-    if (err) throw err;
-    res.send('Attendance records inserted');
+  const checkSql = 'SELECT * FROM attendances WHERE teacher_id = ? AND course_id = ? AND date = ?';
+  conn.query(checkSql, [teacher_id, course_id, date], (checkErr, checkResult) => {
+    if (checkErr) throw checkErr;
+
+    if (checkResult.length > 0) {
+      const updateSql = 'UPDATE attendances SET attendance_status = CASE student_id ';
+      let updateCases = '';
+      const updateValues = [];
+
+      attendances.forEach(attendance => {
+        updateCases += `WHEN ? THEN ? `;
+        updateValues.push(attendance.student_id, attendance.attendance_status);
+      });
+
+      updateCases += 'END WHERE student_id IN (' + attendances.map(a => '?').join(', ') + ') AND teacher_id = ? AND course_id = ? AND date = ?';
+      updateValues.push(...attendances.map(a => a.student_id), teacher_id, course_id, date);
+
+      const finalUpdateSql = updateSql + updateCases;
+
+      conn.query(finalUpdateSql, updateValues, (updateErr, updateResult) => {
+        if (updateErr) throw updateErr;
+        res.send('Attendance records updated');
+      });
+    } else {
+      const insertSql = 'INSERT INTO attendances (student_id, teacher_id, course_id, date, attendance_status) VALUES ?';
+      const values = attendances.map(attendance => [
+        attendance.student_id,
+        attendance.teacher_id,
+        attendance.course_id,
+        attendance.date,
+        attendance.attendance_status
+      ]);
+
+      conn.query(insertSql, [values], (insertErr, insertResult) => {
+        if (insertErr) throw insertErr;
+        res.send('Attendance records inserted');
+      });
+    }
   });
 });
+
 
 
 // view attendance 
@@ -478,21 +507,55 @@ app.get('/api/check-evaluation', (req, res) => {
 
 
 // Evaluate course endpoint
-app.post('/api/evaluate-course', (req, res) => {
-  const { courseId, teacherid, evaluationScore, evaluationDate,student } = req.body;
+app.get('/api/getExamEntryAttendence', (req, res) => {
+  const { student } = req.query;
 
-  // SQL query to insert evaluation
-  const sql = 'INSERT INTO evaluations (course_id, teacher_id, evaluation_score, evaluation_date,student_id) VALUES (?, ?, ?, ?,?)';
-  conn.query(sql, [courseId, teacherid, evaluationScore, evaluationDate,student], (err, results, fields) => {
+  // SQL query to fetch attendance data with a join on courses table
+  const sql = `
+    SELECT a.student_id, a.date, a.attendance_status, c.course_credit, c.course_code
+    FROM attendances a
+    JOIN courses c ON a.course_id = c.course_id
+    WHERE a.student_id = ?
+  `;
+
+  conn.query(sql, [student], (err, result) => {
     if (err) {
-      console.error('Error inserting evaluation:', err);
-      res.status(500).json({ error: 'Database error' });
+      console.error('Error fetching attendance data:', err);
+      res.status(500).send('Error fetching attendance data');
       return;
     }
 
-    res.send('Evaluation submitted successfully');
+    // Extract unique dates
+    const dates = [...new Set(result.map(record => record.date))];
+
+    // Format data into the expected structure
+    const formattedData = result.reduce((acc, record) => {
+      let courseRecord = acc.find(course => course.course_code === record.course_code);
+      if (!courseRecord) {
+        courseRecord = {
+          student_id: record.student_id,
+          course_code: record.course_code,
+          course_credit: record.course_credit,
+          dates: []
+        };
+        acc.push(courseRecord);
+      }
+      courseRecord.dates.push({ date: record.date, status: record.attendance_status });
+      return acc;
+    }, []);
+
+    // Response object
+    const responseData = {
+      dates: dates,
+      data: formattedData
+    };
+
+    res.json(responseData);
   });
 });
+
+
+
 
 
 app.get('/api/evaluation_score', (req, res) => {
