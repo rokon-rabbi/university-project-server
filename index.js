@@ -441,7 +441,51 @@ app.post('/api/attendances', (req, res) => {
   });
 });
 
+// fetc entry student 
+app.get('/api/getEntryStudents', (req, res) => {
+  const { userId } = req.query;
 
+  if (!userId) {
+    return res.status(400).send('userId query parameter is required');
+  }
+
+
+  const query = `
+    SELECT 
+        c.coordinator_id,
+        c.user_id AS coordinator_user_id,
+        c.department_id AS coordinator_department_id,
+        c.session AS coordinator_session,
+        c.exam_entry_status,
+        s.student_id,
+        s.user_id AS student_user_id,
+        s.department_id AS student_department_id,
+        s.roll,
+        s.session_year AS student_session,
+        s.batch,
+        u.user_name
+    FROM 
+        coordinators c
+    JOIN 
+        students s ON c.session = s.session_year
+    JOIN 
+        users u ON s.user_id = u.user_id
+    WHERE 
+        c.user_id = ?;
+`;
+
+
+  // console.log('Executing query:', query); 
+  conn.query(query, [userId], (err, results) => {
+    if (err) {
+      // console.error('Error executing query:', err);
+      res.status(500).send('Internal Server Error');
+      return;
+    }
+    // console.log('Query results:', results); 
+    res.json(results);
+  });
+});
 
 // view attendance 
 app.get('/api/getAttendance', (req, res) => {
@@ -509,7 +553,7 @@ app.get('/api/check-evaluation', (req, res) => {
 // Evaluate course endpoint
 app.get('/api/getExamEntryAttendence', (req, res) => {
   const { student } = req.query;
-
+ 
   // SQL query to fetch attendance data with a join on courses table
   const sql = `
     SELECT a.student_id, a.date, a.attendance_status, c.course_credit, c.course_code
@@ -554,8 +598,41 @@ app.get('/api/getExamEntryAttendence', (req, res) => {
   });
 });
 
+// status cng 
+app.post('/api/updateEntryStatus', (req, res) => {
+  const updates = req.body.updates;
 
+  const updateEntryStatus = (update, callback) => {
+      const query = 'UPDATE students SET entryStatus = ? WHERE student_id = ?';
+      conn.query(query, [update.entryStatus, update.student_id], (err, results) => {
+          if (err) {
+              console.error('Error updating entry status for student_id:', update.student_id, err);
+              return callback(err);
+          }
+          callback(null, results);
+      });
+  };
 
+  let completed = 0;
+  const errors = [];
+
+  updates.forEach(update => {
+      updateEntryStatus(update, (err, results) => {
+          completed++;
+          if (err) {
+              errors.push(err);
+          }
+          if (completed === updates.length) {
+              if (errors.length > 0) {
+                  console.error('Errors occurred during updates:', errors);
+                  res.status(500).send(errors);
+              } else {
+                  res.send('Entry status updated successfully');
+              }
+          }
+      });
+  });
+});
 
 
 app.get('/api/evaluation_score', (req, res) => {
