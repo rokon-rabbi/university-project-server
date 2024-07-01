@@ -553,7 +553,7 @@ app.get('/api/check-evaluation', (req, res) => {
 // Evaluate course endpoint
 app.get('/api/getExamEntryAttendence', (req, res) => {
   const { student } = req.query;
- 
+
   // SQL query to fetch attendance data with a join on courses table
   const sql = `
     SELECT a.student_id, a.date, a.attendance_status, c.course_credit, c.course_code
@@ -603,34 +603,34 @@ app.post('/api/updateEntryStatus', (req, res) => {
   const updates = req.body.updates;
 
   const updateEntryStatus = (update, callback) => {
-      const query = 'UPDATE students SET entryStatus = ? WHERE student_id = ?';
-      conn.query(query, [update.entryStatus, update.student_id], (err, results) => {
-          if (err) {
-              console.error('Error updating entry status for student_id:', update.student_id, err);
-              return callback(err);
-          }
-          callback(null, results);
-      });
+    const query = 'UPDATE students SET entryStatus = ? WHERE student_id = ?';
+    conn.query(query, [update.entryStatus, update.student_id], (err, results) => {
+      if (err) {
+        console.error('Error updating entry status for student_id:', update.student_id, err);
+        return callback(err);
+      }
+      callback(null, results);
+    });
   };
 
   let completed = 0;
   const errors = [];
 
   updates.forEach(update => {
-      updateEntryStatus(update, (err, results) => {
-          completed++;
-          if (err) {
-              errors.push(err);
-          }
-          if (completed === updates.length) {
-              if (errors.length > 0) {
-                  console.error('Errors occurred during updates:', errors);
-                  res.status(500).send(errors);
-              } else {
-                  res.send('Entry status updated successfully');
-              }
-          }
-      });
+    updateEntryStatus(update, (err, results) => {
+      completed++;
+      if (err) {
+        errors.push(err);
+      }
+      if (completed === updates.length) {
+        if (errors.length > 0) {
+          console.error('Errors occurred during updates:', errors);
+          res.status(500).send(errors);
+        } else {
+          res.send('Entry status updated successfully');
+        }
+      }
+    });
   });
 });
 
@@ -645,6 +645,191 @@ app.get('/api/evaluation_score', (req, res) => {
     }
   });
 });
+// sign  cairman
+app.post('/api/submitEntries', (req, res) => {
+  const entries = req.body.entries;
+
+  // Validate the request body
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return res.status(400).json({ message: 'Invalid entries data' });
+  }
+
+  // Function to insert or update each entry
+  const processEntry = (entry, callback) => {
+    const { student_id, term, chairman_status } = entry;
+
+    // Check if the entry already exists
+    const checkQuery = 'SELECT * FROM entries WHERE student_id = ? AND term = ?';
+    conn.query(checkQuery, [student_id, term], (err, rows) => {
+      if (err) {
+        console.error('Error checking entry:', err);
+        return callback(err);
+      }
+
+      if (rows.length > 0) {
+        // Entry exists, update it
+        const updateQuery = 'UPDATE entries SET chairman_status = ? WHERE student_id = ? AND term = ?';
+        conn.query(updateQuery, [chairman_status, student_id, term], (err, result) => {
+          if (err) {
+            console.error('Error updating entry:', err);
+            callback(err);
+          } else {
+            callback(null, result);
+          }
+        });
+      } else {
+        // Entry doesn't exist, insert it
+        const insertQuery = 'INSERT INTO entries (student_id, term, chairman_status) VALUES (?, ?, ?)';
+        conn.query(insertQuery, [student_id, term, chairman_status], (err, result) => {
+          if (err) {
+            console.error('Error inserting entry:', err);
+            callback(err);
+          } else {
+            callback(null, result);
+          }
+        });
+      }
+    });
+  };
+
+  // Process each entry and collect results
+  const results = [];
+  let processedCount = 0;
+
+  entries.forEach(entry => {
+    processEntry(entry, (err, result) => {
+      if (err) {
+        console.error('Error processing entry:', err);
+        res.status(500).send(err);
+        return; // Exit early on error
+      }
+
+      results.push(result);
+      processedCount++;
+
+      // Once all entries are processed, send response
+      if (processedCount === entries.length) {
+        res.json({ message: 'Entries submitted successfully', results });
+      }
+    });
+  });
+});
+// sign provost 
+app.post('/api/submitEntriesProvost', (req, res) => {
+  const entries = req.body.entries;
+
+  // Validate the request body
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return res.status(400).json({ message: 'Invalid entries data' });
+  }
+
+  // Function to insert or update each entry
+  const processEntry = (entry, callback) => {
+    const { student_id, term, provost_status } = entry;
+
+    // Check if the entry already exists
+    const checkQuery = 'SELECT * FROM entries WHERE student_id = ? AND term = ?';
+    conn.query(checkQuery, [student_id, term], (err, rows) => {
+      if (err) {
+        console.error('Error checking entry:', err);
+        return callback(err);
+      }
+
+      if (rows.length > 0) {
+        // Entry exists, update it
+        const updateQuery = 'UPDATE entries SET provost_status = ? WHERE student_id = ? AND term = ?';
+        conn.query(updateQuery, [provost_status, student_id, term], (err, result) => {
+          if (err) {
+            console.error('Error updating entry:', err);
+            callback(err);
+          } else {
+            callback(null, result);
+          }
+        });
+      } else {
+        // Entry doesn't exist, insert it
+        const insertQuery = 'INSERT INTO entries (student_id, term, provost_status) VALUES (?, ?, ?)';
+        conn.query(insertQuery, [student_id, term, provost_status], (err, result) => {
+          if (err) {
+            console.error('Error inserting entry:', err);
+            callback(err);
+          } else {
+            callback(null, result);
+          }
+        });
+      }
+    });
+  };
+
+  // Process each entry and collect results
+  const results = [];
+  let processedCount = 0;
+
+  entries.forEach(entry => {
+    processEntry(entry, (err, result) => {
+      if (err) {
+        console.error('Error processing entry:', err);
+        res.status(500).send(err);
+        return; // Exit early on error
+      }
+
+      results.push(result);
+      processedCount++;
+
+      // Once all entries are processed, send response
+      if (processedCount === entries.length) {
+        res.json({ message: 'Entries submitted successfully', results });
+      }
+    });
+  });
+});
+
+// get sign 
+app.get('/api/getChairmanProvostStatus', (req, res) => {
+
+  const { studentId } = req.query;
+  const query = 'SELECT chairman_status, provost_status FROM entries WHERE student_id = ?';
+// console.log('Executing query:', query); 
+  conn.query(query, [studentId], (error, results) => {
+    if (error) {
+      console.error('Error fetching chairman and provost status:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+
+    if (results.length > 0) {
+      // console.log('Executing query:', results); 
+      res.json(results[0]);
+    } else {
+      res.status(404).json({ error: 'Student not found' });
+    }
+  });
+});
+
+// get director status student 
+app.get('/api/getProvostStudents', (req, res) => {
+  const { course_level } = req.query;
+
+  if (!course_level) {
+    return res.status(400).json({ message: 'Invalid course level' });
+  }
+
+  const query = `
+    SELECT entries.student_id, entries.term, entries.chairman_status, students.roll, users.user_name
+    FROM entries
+    JOIN students ON entries.student_id = students.student_id
+    JOIN users ON students.user_id = users.user_id
+    WHERE entries.term = ? AND entries.chairman_status = 'yes'
+  `;
+
+  conn.query(query, [course_level], (err, results) => {
+    if (err) {
+      console.error('Error fetching students:', err);
+      return res.status(500).send(err);
+    }
+    res.json(results);
+  });
+});
+
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
